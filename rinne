@@ -1,0 +1,98 @@
+import requests
+
+def aplicar_falso_positivo_por_nome(application_name, cve, api_key_id, api_key_secret):
+    # 1. Buscar application_id
+    app_list_url = "https://api.veracode.com/appsec/v1/applications"
+    response = requests.get(app_list_url, auth=(api_key_id, api_key_secret))
+    response.raise_for_status()
+    
+    apps = response.json().get("_embedded", {}).get("applications", [])
+    app = next((a for a in apps if a.get("profile", {}).get("name") == application_name), None)
+    if not app:
+        return f"Aplicação '{application_name}' não encontrada."
+
+    application_id = app.get("guid")
+
+    # 2. Buscar findings da aplicação
+    findings_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings"
+    response = requests.get(findings_url, auth=(api_key_id, api_key_secret))
+    response.raise_for_status()
+
+    findings = response.json().get("_embedded", {}).get("findings", [])
+    finding = next((f for f in findings if f.get("cve_id") == cve), None)
+    if not finding:
+        return f"CVE '{cve}' não encontrado na aplicação '{application_name}'."
+
+    finding_id = finding.get("id")
+
+    # 3. Aplicar mitigação como falso positivo
+    mitigacao_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings/{finding_id}/mitigations"
+    payload = {
+        "finding_id": finding_id,
+        "mitigation_status": "FALSE_POSITIVE",
+        "comment": "Justificativa: confirmado como falso positivo após análise manual."
+    }
+    response = requests.put(mitigacao_url, auth=(api_key_id, api_key_secret), json=payload)
+    response.raise_for_status()
+
+    return "Mitigação aplicada com sucesso!"
+
+
+
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+def aplicarFalsoPositivoPorNome(String applicationName, String cve, String apiKeyId, String apiKeySecret) {
+    // Função auxiliar para autenticar
+    def authHeader = "Basic " + "${apiKeyId}:${apiKeySecret}".bytes.encodeBase64().toString()
+
+    // 1. Buscar application_id pelo nome
+    def appUrl = "https://api.veracode.com/appsec/v1/applications"
+    def appsResponse = new URL(appUrl).openConnection()
+    appsResponse.setRequestProperty("Authorization", authHeader)
+    appsResponse.setRequestProperty("Accept", "application/json")
+
+    def apps = new JsonSlurper().parse(appsResponse.getInputStream())
+            ._embedded?.applications ?: []
+
+    def app = apps.find { it.profile?.name == applicationName }
+    if (!app) return "Aplicação '${applicationName}' não encontrada."
+
+    def applicationId = app.guid
+
+    // 2. Buscar findings da aplicação
+    def findingsUrl = "https://api.veracode.com/appsec/v1/applications/${applicationId}/findings"
+    def findingsResponse = new URL(findingsUrl).openConnection()
+    findingsResponse.setRequestProperty("Authorization", authHeader)
+    findingsResponse.setRequestProperty("Accept", "application/json")
+
+    def findings = new JsonSlurper().parse(findingsResponse.getInputStream())
+            ._embedded?.findings ?: []
+
+    def finding = findings.find { it.cve_id == cve }
+    if (!finding) return "CVE '${cve}' não encontrada na aplicação '${applicationName}'."
+
+    def findingId = finding.id
+
+    // 3. Aplicar mitigação como falso positivo
+    def mitigacaoUrl = "https://api.veracode.com/appsec/v1/applications/${applicationId}/findings/${findingId}/mitigations"
+    def connection = new URL(mitigacaoUrl).openConnection()
+    connection.setDoOutput(true)
+    connection.setRequestMethod("PUT")
+    connection.setRequestProperty("Authorization", authHeader)
+    connection.setRequestProperty("Content-Type", "application/json")
+
+    def payload = [
+        finding_id      : findingId,
+        mitigation_status : "FALSE_POSITIVE",
+        comment         : "Mitigado manualmente: falso positivo confirmado"
+    ]
+
+    connection.outputStream.withWriter("UTF-8") {
+        it << JsonOutput.toJson(payload)
+    }
+
+    def responseCode = connection.responseCode
+    return responseCode == 200 ? "Mitigação aplicada com sucesso!" : "Erro: ${responseCode}"
+}
