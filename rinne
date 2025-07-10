@@ -1,43 +1,73 @@
+import sys
 import requests
+from pathlib import Path
+
+# ========= Função principal =========
 
 def aplicar_falso_positivo_por_nome(application_name, cve, api_key_id, api_key_secret):
-    # 1. Buscar application_id
-    app_list_url = "https://api.veracode.com/appsec/v1/applications"
-    response = requests.get(app_list_url, auth=(api_key_id, api_key_secret))
-    response.raise_for_status()
+    auth = (api_key_id, api_key_secret)
+
+    # 1. Buscar application_id pelo nome
+    app_url = "https://api.veracode.com/appsec/v1/applications"
+    response = requests.get(app_url, auth=auth)
+    if response.status_code != 200:
+        return f"[Erro] Aplicações não acessadas: {response.status_code}"
     
     apps = response.json().get("_embedded", {}).get("applications", [])
     app = next((a for a in apps if a.get("profile", {}).get("name") == application_name), None)
     if not app:
-        return f"Aplicação '{application_name}' não encontrada."
+        return f"[Ignorado] Aplicação '{application_name}' não encontrada."
 
     application_id = app.get("guid")
 
     # 2. Buscar findings da aplicação
     findings_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings"
-    response = requests.get(findings_url, auth=(api_key_id, api_key_secret))
-    response.raise_for_status()
+    response = requests.get(findings_url, auth=auth)
+    if response.status_code != 200:
+        return f"[Erro] Findings não acessados: {response.status_code}"
 
     findings = response.json().get("_embedded", {}).get("findings", [])
     finding = next((f for f in findings if f.get("cve_id") == cve), None)
     if not finding:
-        return f"CVE '{cve}' não encontrado na aplicação '{application_name}'."
+        return f"[Ignorado] CVE '{cve}' não encontrada na aplicação '{application_name}'."
 
     finding_id = finding.get("id")
 
-    # 3. Aplicar mitigação como falso positivo
+    # 3. Aplicar mitigação
     mitigacao_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings/{finding_id}/mitigations"
     payload = {
         "finding_id": finding_id,
         "mitigation_status": "FALSE_POSITIVE",
-        "comment": "Justificativa: confirmado como falso positivo após análise manual."
+        "comment": "Mitigação aplicada via script: falso positivo confirmado"
     }
-    response = requests.put(mitigacao_url, auth=(api_key_id, api_key_secret), json=payload)
-    response.raise_for_status()
+    response = requests.put(mitigacao_url, auth=auth, json=payload)
+    if response.status_code == 200:
+        return f"[Sucesso] CVE '{cve}' mitigada na aplicação '{application_name}'."
+    else:
+        return f"[Erro] Falha ao mitigar CVE '{cve}': {response.status_code} - {response.text}"
 
-    return "Mitigação aplicada com sucesso!"
 
+# ========= Execução por arquivo =========
 
+if __name__ == "__main__":
+    if len(sys.argv) < 5:
+        print("Uso: python mitigar_cves.py <application_name> <arquivo_cves.txt> <api_key_id> <api_key_secret>")
+        sys.exit(1)
+
+    application_name = sys.argv[1]
+    arquivo_cves = Path(sys.argv[2])
+    api_key_id = sys.argv[3]
+    api_key_secret = sys.argv[4]
+
+    if not arquivo_cves.exists():
+        print(f"[Erro] Arquivo '{arquivo_cves}' não encontrado.")
+        sys.exit(1)
+
+    with arquivo_cves.open() as f:
+        for line in f:
+            cve = line.strip()
+            if cve:
+                print(aplicar_falso_positivo_por_nome(application_name, cve, api_key_id, api_key_secret))
 
 
 import groovy.json.JsonOutput
