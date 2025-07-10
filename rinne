@@ -128,13 +128,17 @@ def aplicarFalsoPositivoPorNome(String applicationName, String cve, String apiKe
 }
 
 
-import os
-import sys
+
+
 import requests
 
-def buscar_application_id(application_name, api_key_id, api_key_secret):
+# 🔐 Substitua abaixo com suas credenciais reais
+API_KEY_ID = "SUA_API_KEY_ID"
+API_KEY_SECRET = "SEU_API_KEY_SECRET"
+
+def buscar_application_id(application_name):
     url = "https://api.veracode.com/appsec/v1/applications"
-    response = requests.get(url, auth=(api_key_id, api_key_secret))
+    response = requests.get(url, auth=(API_KEY_ID, API_KEY_SECRET))
     response.raise_for_status()
 
     apps = response.json().get("_embedded", {}).get("applications", [])
@@ -143,9 +147,9 @@ def buscar_application_id(application_name, api_key_id, api_key_secret):
             return app.get("guid")
     return None
 
-def listar_cves_sca(application_id, api_key_id, api_key_secret):
+def listar_cves_sca(application_id):
     url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings"
-    response = requests.get(url, auth=(api_key_id, api_key_secret))
+    response = requests.get(url, auth=(API_KEY_ID, API_KEY_SECRET))
     response.raise_for_status()
 
     findings = response.json().get("_embedded", {}).get("findings", [])
@@ -167,27 +171,12 @@ def listar_cves_sca(application_id, api_key_id, api_key_secret):
     return cves
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Uso: python listar_cves_sca.py <nome_aplicacao>")
-        sys.exit(1)
-
-    application_name = sys.argv[1]
-    api_key_id = os.getenv("VERACODE_API_KEY_ID")
-    api_key_secret = os.getenv("VERACODE_API_KEY_SECRET")
-
-    if not api_key_id or not api_key_secret:
-        print("Chaves de API não encontradas no ambiente. Configure VERACODE_API_KEY_ID e VERACODE_API_KEY_SECRET.")
-        sys.exit(1)
-
-    app_id = buscar_application_id(application_name, api_key_id, api_key_secret)
+    nome_aplicacao = "NOME_DA_SUA_APLICACAO"
+    app_id = buscar_application_id(nome_aplicacao)
     if not app_id:
-        print(f"Aplicação '{application_name}' não encontrada.")
-        sys.exit(1)
+        print(f"Aplicação '{nome_aplicacao}' não encontrada.")
+        exit(1)
 
-    cves = listar_cves_sca(app_id, api_key_id, api_key_secret)
-    if not cves:
-        print("Nenhum finding SCA com CVE encontrado.")
-    else:
-        print(f"CVEs SCA encontradas na aplicação '{application_name}':\n")
-        for item in cves:
-            print(f"- {item['cve']} ({item['componente']}) | Severidade: {item['severidade']} | Status: {item['status']}")
+    resultado = listar_cves_sca(app_id)
+    for item in resultado:
+        print(f"- {item['cve']} ({item['componente']}) | Severidade: {item['severidade']} | Status: {item['status']}")
