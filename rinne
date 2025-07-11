@@ -8,8 +8,9 @@ API_BASE_V1 = "https://api.veracode.com/appsec/v1"
 HEADERS = {"User-Agent": "Python HMAC SCA Scanner"}
 
 # === Parâmetros ===
-APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID da aplicação
-COMMENT_FP = "Mitigado como falso positivo após revisão técnica interna."
+APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID correto
+TARGET_CVE = "CVE-2016-10532"  # << coloque aqui a CVE específica que você quer mitigar
+COMMENT_FP = f"Mitigado como falso positivo para {TARGET_CVE} após revisão técnica."
 
 # === Buscar findings SCA ===
 def get_sca_findings(app_guid):
@@ -34,9 +35,9 @@ def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment=C
     return response.json()
 
 # === Execução principal ===
-def executar_mitigacao_fp_sca():
+def executar_fp_para_cve_especifica():
     try:
-        print("[...] Buscando findings SCA da aplicação...")
+        print("[...] Buscando todos os findings SCA da aplicação...")
         resultado = get_sca_findings(APPLICATION_GUID)
         findings = resultado.get("_embedded", {}).get("findings", [])
         print(f"[✓] Total de findings SCA encontrados: {len(findings)}")
@@ -45,6 +46,7 @@ def executar_mitigacao_fp_sca():
             details = f.get("finding_details", {})
             status_info = f.get("finding_status", {})
             cve_data = details.get("cve", {})
+            cve_name = cve_data.get("name")
             component = details.get("component_filename")
             version = details.get("version")
             severity = details.get("severity")
@@ -55,17 +57,22 @@ def executar_mitigacao_fp_sca():
             status = status_info.get("status")
             resolution = status_info.get("resolution")
 
+            # === Log completo de todos os findings ===
             print(f"\n{idx}. {component} v{version}")
-            print(f"    - CVE: {cve_data.get('name')}")
+            print(f"    - CVE: {cve_name}")
             print(f"    - Severity: {severity}")
             print(f"    - Status: {status} | Resolution: {resolution}")
             print(f"    - Violates policy: {violates}")
             print(f"    - Context GUID: {context_guid}")
             print(f"    - Finding GUID: {finding_guid}")
 
-            print("[→] Aplicando anotação como FALSE_POSITIVE...")
-            resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
-            print(f"[✓] Anotado com sucesso: {resultado_fp}")
+            # === Aplicar FP apenas na CVE desejada ===
+            if cve_name == TARGET_CVE:
+                print(f"[→] Aplicando mitigação FP para {TARGET_CVE}...")
+                resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
+                print(f"[✓] Anotado como FP: {resultado_fp}")
+            else:
+                print("[→] CVE não corresponde ao alvo. Nenhuma ação aplicada.")
 
     except requests.exceptions.HTTPError as e:
         print(f"[!] Erro HTTP: {e}")
@@ -76,4 +83,4 @@ def executar_mitigacao_fp_sca():
 
 # === Rodar ===
 if __name__ == "__main__":
-    executar_mitigacao_fp_sca()
+    executar_fp_para_cve_especifica()
