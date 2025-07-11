@@ -8,58 +8,64 @@ API_BASE_V1 = "https://api.veracode.com/appsec/v1"
 HEADERS = {"User-Agent": "Python HMAC SCA Scanner"}
 
 # === Parâmetros ===
-APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID correto da aplicação
+APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID da aplicação
+COMMENT_FP = "Mitigado como falso positivo após revisão técnica interna."
 
-# === Buscar apenas findings de tipo SCA ===
+# === Buscar findings SCA ===
 def get_sca_findings(app_guid):
     url = f"{API_BASE_V2}/applications/{app_guid}/findings"
-    params = {"scan_type": "SCA"}  # Filtra só achados da análise de composição
+    params = {"scan_type": "SCA"}
     response = requests.get(url, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS, params=params)
     response.raise_for_status()
     return response.json()
 
-# === Aplicar anotação FP (opcional — comentado) ===
-# def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment="Mitigado como falso positivo"):
-#     url = f"{API_BASE_V1}/applications/{app_guid}/annotations"
-#     payload = {
-#         "finding_guid": finding_guid,
-#         "context_guid": context_guid,
-#         "scan_type": scan_type,
-#         "action": "FP",
-#         "comment": comment
-#     }
-#     response = requests.post(url, json=payload, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS)
-#     response.raise_for_status()
-#     return response.json()
+# === Aplicar anotação FP ===
+def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment=COMMENT_FP):
+    url = f"{API_BASE_V1}/applications/{app_guid}/annotations"
+    payload = {
+        "finding_guid": finding_guid,
+        "context_guid": context_guid,
+        "scan_type": scan_type,
+        "action": "FP",
+        "comment": comment
+    }
+    response = requests.post(url, json=payload, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS)
+    response.raise_for_status()
+    return response.json()
 
 # === Execução principal ===
-def listar_findings_sca():
+def executar_mitigacao_fp_sca():
     try:
+        print("[...] Buscando findings SCA da aplicação...")
         resultado = get_sca_findings(APPLICATION_GUID)
         findings = resultado.get("_embedded", {}).get("findings", [])
-        print(f"[✓] Total de findings do tipo SCA encontrados: {len(findings)}")
+        print(f"[✓] Total de findings SCA encontrados: {len(findings)}")
 
         for idx, f in enumerate(findings, start=1):
             details = f.get("finding_details", {})
+            status_info = f.get("finding_status", {})
             cve_data = details.get("cve", {})
             component = details.get("component_filename")
-            severity = details.get("severity")
             version = details.get("version")
+            severity = details.get("severity")
             context_guid = f.get("context_guid")
             finding_guid = f.get("issue_id")
             scan_type = f.get("scan_type")
             violates = f.get("violates_policy")
+            status = status_info.get("status")
+            resolution = status_info.get("resolution")
 
-            print(f"\n{idx}. Componente: {component} (v{version})")
+            print(f"\n{idx}. {component} v{version}")
             print(f"    - CVE: {cve_data.get('name')}")
             print(f"    - Severity: {severity}")
-            print(f"    - Violates Policy: {violates}")
-            print(f"    - Scan Type: {scan_type}")
-            print(f"    - GUIDs → Context: {context_guid} | Finding: {finding_guid}")
+            print(f"    - Status: {status} | Resolution: {resolution}")
+            print(f"    - Violates policy: {violates}")
+            print(f"    - Context GUID: {context_guid}")
+            print(f"    - Finding GUID: {finding_guid}")
 
-            # Descomente abaixo para aplicar anotação FP automaticamente
-            # resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
-            # print(f"    → Annotado como FP: {resultado_fp}")
+            print("[→] Aplicando anotação como FALSE_POSITIVE...")
+            resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
+            print(f"[✓] Anotado com sucesso: {resultado_fp}")
 
     except requests.exceptions.HTTPError as e:
         print(f"[!] Erro HTTP: {e}")
@@ -70,4 +76,4 @@ def listar_findings_sca():
 
 # === Rodar ===
 if __name__ == "__main__":
-    listar_findings_sca()
+    executar_mitigacao_fp_sca()
