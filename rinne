@@ -1,182 +1,65 @@
-import sys
-import requests
-from pathlib import Path
-
-# ========= Função principal =========
-
-def aplicar_falso_positivo_por_nome(application_name, cve, api_key_id, api_key_secret):
-    auth = (api_key_id, api_key_secret)
-
-    # 1. Buscar application_id pelo nome
-    app_url = "https://api.veracode.com/appsec/v1/applications"
-    response = requests.get(app_url, auth=auth)
-    if response.status_code != 200:
-        return f"[Erro] Aplicações não acessadas: {response.status_code}"
-    
-    apps = response.json().get("_embedded", {}).get("applications", [])
-    app = next((a for a in apps if a.get("profile", {}).get("name") == application_name), None)
-    if not app:
-        return f"[Ignorado] Aplicação '{application_name}' não encontrada."
-
-    application_id = app.get("guid")
-
-    # 2. Buscar findings da aplicação
-    findings_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings"
-    response = requests.get(findings_url, auth=auth)
-    if response.status_code != 200:
-        return f"[Erro] Findings não acessados: {response.status_code}"
-
-    findings = response.json().get("_embedded", {}).get("findings", [])
-    finding = next((f for f in findings if f.get("cve_id") == cve), None)
-    if not finding:
-        return f"[Ignorado] CVE '{cve}' não encontrada na aplicação '{application_name}'."
-
-    finding_id = finding.get("id")
-
-    # 3. Aplicar mitigação
-    mitigacao_url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings/{finding_id}/mitigations"
-    payload = {
-        "finding_id": finding_id,
-        "mitigation_status": "FALSE_POSITIVE",
-        "comment": "Mitigação aplicada via script: falso positivo confirmado"
-    }
-    response = requests.put(mitigacao_url, auth=auth, json=payload)
-    if response.status_code == 200:
-        return f"[Sucesso] CVE '{cve}' mitigada na aplicação '{application_name}'."
-    else:
-        return f"[Erro] Falha ao mitigar CVE '{cve}': {response.status_code} - {response.text}"
-
-
-# ========= Execução por arquivo =========
-
-if __name__ == "__main__":
-    if len(sys.argv) < 5:
-        print("Uso: python mitigar_cves.py <application_name> <arquivo_cves.txt> <api_key_id> <api_key_secret>")
-        sys.exit(1)
-
-    application_name = sys.argv[1]
-    arquivo_cves = Path(sys.argv[2])
-    api_key_id = sys.argv[3]
-    api_key_secret = sys.argv[4]
-
-    if not arquivo_cves.exists():
-        print(f"[Erro] Arquivo '{arquivo_cves}' não encontrado.")
-        sys.exit(1)
-
-    with arquivo_cves.open() as f:
-        for line in f:
-            cve = line.strip()
-            if cve:
-                print(aplicar_falso_positivo_por_nome(application_name, cve, api_key_id, api_key_secret))
-
-
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurper
-
-def aplicarFalsoPositivoPorNome(String applicationName, String cve, String apiKeyId, String apiKeySecret) {
-    // Função auxiliar para autenticar
-    def authHeader = "Basic " + "${apiKeyId}:${apiKeySecret}".bytes.encodeBase64().toString()
-
-    // 1. Buscar application_id pelo nome
-    def appUrl = "https://api.veracode.com/appsec/v1/applications"
-    def appsResponse = new URL(appUrl).openConnection()
-    appsResponse.setRequestProperty("Authorization", authHeader)
-    appsResponse.setRequestProperty("Accept", "application/json")
-
-    def apps = new JsonSlurper().parse(appsResponse.getInputStream())
-            ._embedded?.applications ?: []
-
-    def app = apps.find { it.profile?.name == applicationName }
-    if (!app) return "Aplicação '${applicationName}' não encontrada."
-
-    def applicationId = app.guid
-
-    // 2. Buscar findings da aplicação
-    def findingsUrl = "https://api.veracode.com/appsec/v1/applications/${applicationId}/findings"
-    def findingsResponse = new URL(findingsUrl).openConnection()
-    findingsResponse.setRequestProperty("Authorization", authHeader)
-    findingsResponse.setRequestProperty("Accept", "application/json")
-
-    def findings = new JsonSlurper().parse(findingsResponse.getInputStream())
-            ._embedded?.findings ?: []
-
-    def finding = findings.find { it.cve_id == cve }
-    if (!finding) return "CVE '${cve}' não encontrada na aplicação '${applicationName}'."
-
-    def findingId = finding.id
-
-    // 3. Aplicar mitigação como falso positivo
-    def mitigacaoUrl = "https://api.veracode.com/appsec/v1/applications/${applicationId}/findings/${findingId}/mitigations"
-    def connection = new URL(mitigacaoUrl).openConnection()
-    connection.setDoOutput(true)
-    connection.setRequestMethod("PUT")
-    connection.setRequestProperty("Authorization", authHeader)
-    connection.setRequestProperty("Content-Type", "application/json")
-
-    def payload = [
-        finding_id      : findingId,
-        mitigation_status : "FALSE_POSITIVE",
-        comment         : "Mitigado manualmente: falso positivo confirmado"
-    ]
-
-    connection.outputStream.withWriter("UTF-8") {
-        it << JsonOutput.toJson(payload)
-    }
-
-    def responseCode = connection.responseCode
-    return responseCode == 200 ? "Mitigação aplicada com sucesso!" : "Erro: ${responseCode}"
-}
-
-
-
-
 import requests
 
-# 🔐 Substitua abaixo com suas credenciais reais
-API_KEY_ID = "SUA_API_KEY_ID"
+# === CONFIGURAÇÃO ===
+API_KEY_ID = "SEU_API_KEY_ID"
 API_KEY_SECRET = "SEU_API_KEY_SECRET"
+APP_GUID = "SEU_APPLICATION_GUID"
+CVE_ID = "CVE-2016-10532"  # substitua pelo CVE desejado
+BASE_URL_FINDINGS = "https://api.veracode.com"
+COMMENT_FP = "Mitigado como falso positivo após revisão interna."
 
-def buscar_application_id(application_name):
-    url = "https://api.veracode.com/appsec/v1/applications"
-    response = requests.get(url, auth=(API_KEY_ID, API_KEY_SECRET))
+session = requests.Session()
+session.auth = (API_KEY_ID, API_KEY_SECRET)
+session.headers.update({
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+})
+
+# === PASSO 1: Consultar achado por CVE ===
+def get_findings_by_cve(app_guid, cve_id):
+    url = f"{BASE_URL_FINDINGS}/appsec/v2/applications/{app_guid}/findings"
+    params = {"cve": cve_id}
+    response = session.get(url, params=params)
     response.raise_for_status()
+    return response.json()
 
-    apps = response.json().get("_embedded", {}).get("applications", [])
-    for app in apps:
-        if app.get("profile", {}).get("name") == application_name:
-            return app.get("guid")
-    return None
-
-def listar_cves_sca(application_id):
-    url = f"https://api.veracode.com/appsec/v1/applications/{application_id}/findings"
-    response = requests.get(url, auth=(API_KEY_ID, API_KEY_SECRET))
+# === PASSO 2: Anotar como False Positive ===
+def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment="Mitigado como FP"):
+    url = f"{BASE_URL_FINDINGS}/appsec/v1/applications/{app_guid}/annotations"
+    payload = {
+        "finding_guid": finding_guid,
+        "context_guid": context_guid,
+        "scan_type": scan_type,
+        "action": "FP",
+        "comment": comment
+    }
+    response = session.post(url, json=payload)
     response.raise_for_status()
+    return response.json()
 
-    findings = response.json().get("_embedded", {}).get("findings", [])
-    cves = []
+# === EXECUÇÃO DO FLUXO ===
+def executar_fluxo_fp():
+    findings = get_findings_by_cve(APP_GUID, CVE_ID)
+    lista = findings.get("_embedded", {}).get("findings", [])
 
-    for f in findings:
-        if f.get("scan_type") == "SCA":
-            cve = f.get("cve_id") or f.get("title") or "(sem CVE)"
-            componente = f.get("component", "componente não identificado")
-            severidade = f.get("severity", "desconhecida")
-            status = f.get("status", "desconhecido")
-            cves.append({
-                "cve": cve,
-                "componente": componente,
-                "severidade": severidade,
-                "status": status
-            })
+    if not lista:
+        print(f"[!] Nenhum achado encontrado para {CVE_ID}")
+        return
 
-    return cves
+    for f in lista:
+        violates_policy = f.get("violates_policy")
+        finding_guid = f.get("issue_id")  # pode ser issue_id ou outra chave se usar SCA
+        context_guid = f.get("context_guid")
+        scan_type = f.get("scan_type")
 
-if __name__ == "__main__":
-    nome_aplicacao = "NOME_DA_SUA_APLICACAO"
-    app_id = buscar_application_id(nome_aplicacao)
-    if not app_id:
-        print(f"Aplicação '{nome_aplicacao}' não encontrada.")
-        exit(1)
+        print(f"\n[+] Encontrado: {CVE_ID}")
+        print(f"    - Violates policy: {violates_policy}")
+        print(f"    - Scan type: {scan_type}")
+        print(f"    - Issue ID: {finding_guid}")
+        print(f"    - Context GUID: {context_guid}")
 
-    resultado = listar_cves_sca(app_id)
-    for item in resultado:
-        print(f"- {item['cve']} ({item['componente']}) | Severidade: {item['severidade']} | Status: {item['status']}")
+        print("[...] Enviando anotação como FP...")
+        result = annotate_fp(APP_GUID, finding_guid, context_guid, scan_type, COMMENT_FP)
+        print(f"[✓] Anotado com sucesso: {result}")
+
+executar_fluxo_fp()
