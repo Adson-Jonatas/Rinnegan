@@ -4,12 +4,12 @@ from veracode_api_signing.plugin_requests import RequestsAuthPluginVeracodeHMAC
 
 # === Configuração da API ===
 API_BASE_V2 = "https://api.veracode.com/appsec/v2"
-API_BASE_V1 = "https://api.veracode.com/appsec/v1"
-HEADERS = {"User-Agent": "Python HMAC SCA Scanner"}
+API_BASE_V3 = "https://api.veracode.com/srcclr/v3"
+HEADERS = {"User-Agent": "Python HMAC SCA Annotator"}
 
 # === Parâmetros ===
-APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID correto
-TARGET_CVE = "CVE-2016-10532"  # << coloque aqui a CVE específica que você quer mitigar
+APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua aqui
+TARGET_CVE = "CVE-2016-10532"  # << CVE que será anotada
 COMMENT_FP = f"Mitigado como falso positivo para {TARGET_CVE} após revisão técnica."
 
 # === Buscar findings SCA ===
@@ -20,27 +20,31 @@ def get_sca_findings(app_guid):
     response.raise_for_status()
     return response.json()
 
-# === Aplicar anotação FP ===
-def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment=COMMENT_FP):
-    url = f"{API_BASE_V1}/applications/{app_guid}/annotations"
+# === Aplicar anotação FP via SCA ===
+def annotate_sca_cve_fp(app_guid, component_id, cve_name, comment):
+    url = f"{API_BASE_V3}/applications/{app_guid}/sca_annotations"
     payload = {
-        "finding_guid": finding_guid,
-        "context_guid": context_guid,
-        "scan_type": scan_type,
         "action": "FP",
-        "comment": comment
+        "comment": comment,
+        "annotation_type": "VULNERABILITY",
+        "annotations": [
+            {
+                "component_id": component_id,
+                "cve_name": cve_name
+            }
+        ]
     }
     response = requests.post(url, json=payload, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS)
     response.raise_for_status()
     return response.json()
 
 # === Execução principal ===
-def executar_fp_para_cve_especifica():
+def executar_fp_para_cve_sca():
     try:
-        print("[...] Buscando todos os findings SCA da aplicação...")
+        print("[...] Buscando todos os findings SCA...")
         resultado = get_sca_findings(APPLICATION_GUID)
         findings = resultado.get("_embedded", {}).get("findings", [])
-        print(f"[✓] Total de findings SCA encontrados: {len(findings)}")
+        print(f"[✓] Total de findings do tipo SCA encontrados: {len(findings)}")
 
         for idx, f in enumerate(findings, start=1):
             details = f.get("finding_details", {})
@@ -50,26 +54,21 @@ def executar_fp_para_cve_especifica():
             component = details.get("component_filename")
             version = details.get("version")
             severity = details.get("severity")
-            context_guid = f.get("context_guid")
-            finding_guid = f.get("issue_id")
-            scan_type = f.get("scan_type")
+            component_id = details.get("component_id")
             violates = f.get("violates_policy")
             status = status_info.get("status")
             resolution = status_info.get("resolution")
 
-            # === Log completo de todos os findings ===
             print(f"\n{idx}. {component} v{version}")
             print(f"    - CVE: {cve_name}")
             print(f"    - Severity: {severity}")
             print(f"    - Status: {status} | Resolution: {resolution}")
             print(f"    - Violates policy: {violates}")
-            print(f"    - Context GUID: {context_guid}")
-            print(f"    - Finding GUID: {finding_guid}")
+            print(f"    - Component ID: {component_id}")
 
-            # === Aplicar FP apenas na CVE desejada ===
             if cve_name == TARGET_CVE:
-                print(f"[→] Aplicando mitigação FP para {TARGET_CVE}...")
-                resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
+                print(f"[→] Aplicando anotação FP via SCA para {TARGET_CVE}...")
+                resultado_fp = annotate_sca_cve_fp(APPLICATION_GUID, component_id, cve_name, COMMENT_FP)
                 print(f"[✓] Anotado como FP: {resultado_fp}")
             else:
                 print("[→] CVE não corresponde ao alvo. Nenhuma ação aplicada.")
@@ -83,4 +82,4 @@ def executar_fp_para_cve_especifica():
 
 # === Rodar ===
 if __name__ == "__main__":
-    executar_fp_para_cve_especifica()
+    executar_fp_para_cve_sca()
