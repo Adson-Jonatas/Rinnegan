@@ -1,65 +1,37 @@
 import requests
+import os
+from veracode_hmac.signer import generate_headers
 
-# === CONFIGURAÇÃO ===
-API_KEY_ID = "SEU_API_KEY_ID"
-API_KEY_SECRET = "SEU_API_KEY_SECRET"
-APP_GUID = "SEU_APPLICATION_GUID"
-CVE_ID = "CVE-2016-10532"  # substitua pelo CVE desejado
-BASE_URL_FINDINGS = "https://api.veracode.com"
-COMMENT_FP = "Mitigado como falso positivo após revisão interna."
+# === LER CREDENCIAIS DO ARQUIVO ===
+def carregar_credenciais(path="~/.veracode/api_credentials.txt"):
+    cred_path = os.path.expanduser(path)
+    with open(cred_path, "r") as f:
+        linhas = f.readlines()
+    creds = dict(l.strip().split("=") for l in linhas if "=" in l)
+    return creds["veracode_api_key_id"], creds["veracode_api_key_secret"]
 
-session = requests.Session()
-session.auth = (API_KEY_ID, API_KEY_SECRET)
-session.headers.update({
-    "Accept": "application/json",
-    "Content-Type": "application/json"
-})
-
-# === PASSO 1: Consultar achado por CVE ===
+# === CHAMADA GET COM HMAC ===
 def get_findings_by_cve(app_guid, cve_id):
-    url = f"{BASE_URL_FINDINGS}/appsec/v2/applications/{app_guid}/findings"
+    api_id, api_secret = carregar_credenciais()
+    url = f"https://api.veracode.com/appsec/v2/applications/{app_guid}/findings"
     params = {"cve": cve_id}
-    response = session.get(url, params=params)
+    headers = generate_headers("GET", url, "", api_id, api_secret)
+    response = requests.get(url, headers=headers, params=params)
     response.raise_for_status()
     return response.json()
 
-# === PASSO 2: Anotar como False Positive ===
-def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment="Mitigado como FP"):
-    url = f"{BASE_URL_FINDINGS}/appsec/v1/applications/{app_guid}/annotations"
-    payload = {
-        "finding_guid": finding_guid,
-        "context_guid": context_guid,
-        "scan_type": scan_type,
-        "action": "FP",
-        "comment": comment
-    }
-    response = session.post(url, json=payload)
-    response.raise_for_status()
-    return response.json()
+# === EXECUTAR TESTE ===
+if __name__ == "__main__":
+    app_guid = "SEU_APP_GUID_AQUI"
+    cve_id = "CVE-2016-10532"  # exemplo
 
-# === EXECUÇÃO DO FLUXO ===
-def executar_fluxo_fp():
-    findings = get_findings_by_cve(APP_GUID, CVE_ID)
-    lista = findings.get("_embedded", {}).get("findings", [])
-
-    if not lista:
-        print(f"[!] Nenhum achado encontrado para {CVE_ID}")
-        return
-
-    for f in lista:
-        violates_policy = f.get("violates_policy")
-        finding_guid = f.get("issue_id")  # pode ser issue_id ou outra chave se usar SCA
-        context_guid = f.get("context_guid")
-        scan_type = f.get("scan_type")
-
-        print(f"\n[+] Encontrado: {CVE_ID}")
-        print(f"    - Violates policy: {violates_policy}")
-        print(f"    - Scan type: {scan_type}")
-        print(f"    - Issue ID: {finding_guid}")
-        print(f"    - Context GUID: {context_guid}")
-
-        print("[...] Enviando anotação como FP...")
-        result = annotate_fp(APP_GUID, finding_guid, context_guid, scan_type, COMMENT_FP)
-        print(f"[✓] Anotado com sucesso: {result}")
-
-executar_fluxo_fp()
+    try:
+        result = get_findings_by_cve(app_guid, cve_id)
+        achados = result.get("_embedded", {}).get("findings", [])
+        print(f"Encontrados {len(achados)} achado(s) para {cve_id}.")
+        for achado in achados:
+            print(f"- {achado.get('description')[:100]}...")
+    except requests.exceptions.HTTPError as e:
+        print(f"[!] Erro HTTP: {e}")
+    except Exception as ex:
+        print(f"[!] Erro inesperado: {ex}")
