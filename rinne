@@ -5,20 +5,21 @@ from veracode_api_signing.plugin_requests import RequestsAuthPluginVeracodeHMAC
 # === Configuração da API ===
 API_BASE_V2 = "https://api.veracode.com/appsec/v2"
 API_BASE_V1 = "https://api.veracode.com/appsec/v1"
-HEADERS = {"User-Agent": "Python HMAC Example"}
+HEADERS = {"User-Agent": "Python HMAC SCA Scanner"}
 
 # === Parâmetros ===
-APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << coloque aqui seu GUID da aplicação
+APPLICATION_GUID = "SEU_APPLICATION_GUID_AQUI"  # << substitua pelo GUID correto da aplicação
 
-# === Buscar todos os findings ===
-def get_all_findings(app_guid):
+# === Buscar apenas findings de tipo SCA ===
+def get_sca_findings(app_guid):
     url = f"{API_BASE_V2}/applications/{app_guid}/findings"
-    response = requests.get(url, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS)
+    params = {"scan_type": "SCA"}  # Filtra só achados da análise de composição
+    response = requests.get(url, auth=RequestsAuthPluginVeracodeHMAC(), headers=HEADERS, params=params)
     response.raise_for_status()
     return response.json()
 
-# === Aplicar anotação FP (opcional — comentado por enquanto) ===
-# def annotate_fp(app_guid, finding_guid, context_guid, scan_type="STATIC", comment="Marcado como falso positivo"):
+# === Aplicar anotação FP (opcional — comentado) ===
+# def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment="Mitigado como falso positivo"):
 #     url = f"{API_BASE_V1}/applications/{app_guid}/annotations"
 #     payload = {
 #         "finding_guid": finding_guid,
@@ -32,32 +33,33 @@ def get_all_findings(app_guid):
 #     return response.json()
 
 # === Execução principal ===
-def listar_todos_os_findings():
+def listar_findings_sca():
     try:
-        resultado = get_all_findings(APPLICATION_GUID)
+        resultado = get_sca_findings(APPLICATION_GUID)
         findings = resultado.get("_embedded", {}).get("findings", [])
-        print(f"[✓] Total de findings encontrados: {len(findings)}")
+        print(f"[✓] Total de findings do tipo SCA encontrados: {len(findings)}")
 
         for idx, f in enumerate(findings, start=1):
-            desc = f.get("description", "")
-            scan_type = f.get("scan_type")
-            finding_guid = f.get("issue_id")
+            details = f.get("finding_details", {})
+            cve_data = details.get("cve", {})
+            component = details.get("component_filename")
+            severity = details.get("severity")
+            version = details.get("version")
             context_guid = f.get("context_guid")
-            severity = f.get("finding_details", {}).get("severity")
-            cve = f.get("finding_details", {}).get("cve", {}).get("name")
+            finding_guid = f.get("issue_id")
+            scan_type = f.get("scan_type")
             violates = f.get("violates_policy")
 
-            print(f"\n{idx}. {desc[:100]}...")
-            print(f"    - Scan type: {scan_type}")
+            print(f"\n{idx}. Componente: {component} (v{version})")
+            print(f"    - CVE: {cve_data.get('name')}")
             print(f"    - Severity: {severity}")
-            print(f"    - CVE: {cve}")
-            print(f"    - Violates policy: {violates}")
-            print(f"    - Finding GUID: {finding_guid}")
-            print(f"    - Context GUID: {context_guid}")
+            print(f"    - Violates Policy: {violates}")
+            print(f"    - Scan Type: {scan_type}")
+            print(f"    - GUIDs → Context: {context_guid} | Finding: {finding_guid}")
 
-            # Descomente abaixo se quiser aplicar anotação automática
+            # Descomente abaixo para aplicar anotação FP automaticamente
             # resultado_fp = annotate_fp(APPLICATION_GUID, finding_guid, context_guid, scan_type)
-            # print(f"    → Annotated as FP: {resultado_fp}")
+            # print(f"    → Annotado como FP: {resultado_fp}")
 
     except requests.exceptions.HTTPError as e:
         print(f"[!] Erro HTTP: {e}")
@@ -68,4 +70,4 @@ def listar_todos_os_findings():
 
 # === Rodar ===
 if __name__ == "__main__":
-    listar_todos_os_findings()
+    listar_findings_sca()
