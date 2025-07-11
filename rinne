@@ -1,37 +1,61 @@
+import sys
 import requests
-import os
-from veracode_hmac.signer import generate_headers
+from veracode_api_signing.plugin_requests import RequestsAuthPluginVeracodeHMAC
 
-# === LER CREDENCIAIS DO ARQUIVO ===
-def carregar_credenciais(path="~/.veracode/api_credentials.txt"):
-    cred_path = os.path.expanduser(path)
-    with open(cred_path, "r") as f:
-        linhas = f.readlines()
-    creds = dict(l.strip().split("=") for l in linhas if "=" in l)
-    return creds["veracode_api_key_id"], creds["veracode_api_key_secret"]
+# Configuração da API
+api_base_v2 = "https://api.veracode.com/appsec/v2"
+api_base_v1 = "https://api.veracode.com/appsec/v1"
+headers = {"User-Agent": "Python HMAC Example"}
 
-# === CHAMADA GET COM HMAC ===
-def get_findings_by_cve(app_guid, cve_id):
-    api_id, api_secret = carregar_credenciais()
-    url = f"https://api.veracode.com/appsec/v2/applications/{app_guid}/findings"
-    params = {"cve": cve_id}
-    headers = generate_headers("GET", url, "", api_id, api_secret)
-    response = requests.get(url, headers=headers, params=params)
+# Parâmetros que você precisa preencher
+application_guid = "SEU_APPLICATION_GUID"
+cve_id = "CVE-2016-10532"
+comment_fp = "Validado como falso positivo após revisão interna."
+
+def get_findings_by_cve(app_guid, cve):
+    url = f"{api_base_v2}/applications/{app_guid}/findings"
+    params = {"cve": cve}
+    response = requests.get(url, auth=RequestsAuthPluginVeracodeHMAC(), headers=headers, params=params)
     response.raise_for_status()
     return response.json()
 
-# === EXECUTAR TESTE ===
-if __name__ == "__main__":
-    app_guid = "SEU_APP_GUID_AQUI"
-    cve_id = "CVE-2016-10532"  # exemplo
+def annotate_fp(app_guid, finding_guid, context_guid, scan_type="SCA", comment="Mitigado como FP"):
+    url = f"{api_base_v1}/applications/{app_guid}/annotations"
+    payload = {
+        "finding_guid": finding_guid,
+        "context_guid": context_guid,
+        "scan_type": scan_type,
+        "action": "FP",
+        "comment": comment
+    }
+    response = requests.post(url, json=payload, auth=RequestsAuthPluginVeracodeHMAC(), headers=headers)
+    response.raise_for_status()
+    return response.json()
 
-    try:
-        result = get_findings_by_cve(app_guid, cve_id)
-        achados = result.get("_embedded", {}).get("findings", [])
-        print(f"Encontrados {len(achados)} achado(s) para {cve_id}.")
-        for achado in achados:
-            print(f"- {achado.get('description')[:100]}...")
-    except requests.exceptions.HTTPError as e:
-        print(f"[!] Erro HTTP: {e}")
-    except Exception as ex:
-        print(f"[!] Erro inesperado: {ex}")
+# Execução principal
+try:
+    findings = get_findings_by_cve(application_guid, cve_id)
+    achados = findings.get("_embedded", {}).get("findings", [])
+    print(f"[+] Total de achados para {cve_id}: {len(achados)}")
+
+    for achado in achados:
+        finding_guid = achado.get("issue_id")
+        context_guid = achado.get("context_guid")
+        scan_type = achado.get("scan_type")
+
+        print(f"\n[→] Achado encontrado:")
+        print(f"    - GUID: {finding_guid}")
+        print(f"    - Contexto: {context_guid}")
+        print(f"    - Tipo de scan: {scan_type}")
+        print(f"    - Violates policy: {achado.get('violates_policy')}")
+
+        print("[...] Enviando anotação como FP...")
+        resultado = annotate_fp(application_guid, finding_guid, context_guid, scan_type, comment_fp)
+        print(f"[✓] Anotado com sucesso: {resultado}")
+
+except requests.exceptions.HTTPError as e:
+    print(f"[!] Erro HTTP: {e}")
+    sys.exit(1)
+except Exception as ex:
+    print(f"[!] Erro inesperado: {ex}")
+    sys.exit(1)
