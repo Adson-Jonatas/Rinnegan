@@ -1,0 +1,67 @@
+http://mermaid.live
+
+erDiagram
+
+    SiglaBase {
+        string nome
+    }
+
+    SiglaModulo {
+        string nome
+    }
+
+    Project {
+        string nome
+        string status
+    }
+
+    ProjetoStatus {
+        string value
+        string label
+    }
+
+    Branch {
+        string nome
+        boolean padrao
+    }
+
+    Version {
+        string numero
+        datetime data_geracao
+    }
+
+    Scan {
+        string tipo
+        string ferramenta
+        datetime data_execucao
+        string scan_id_externo
+    }
+
+    TipoScan {
+        string value
+        string label
+    }
+
+    Workspace {
+        string nome
+        string ferramenta
+        string workspace_id
+    }
+
+    Vulnerabilidade {
+        string cve
+        string severidade
+        string status
+    }
+
+    SiglaBase ||--o{ SiglaModulo : contains
+    SiglaBase ||--o{ Project : has_base
+    SiglaModulo ||--o{ Project : has_module
+    ProjetoStatus ||--|| Project : status_values
+    Project ||--o{ Branch : has_branch
+    Branch ||--o{ Version : has_version
+    Project ||--o{ Scan : has_scan
+    Version ||--o{ Scan : scanned_with
+    TipoScan ||--|| Scan : scan_types
+    Workspace ||--o{ Scan : originates_from
+    Scan ||--o{ Vulnerabilidade : detects

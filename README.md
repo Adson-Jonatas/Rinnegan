@@ -1,2 +1,0 @@
-# Rinnegan
-Rinnegan
